@@ -1,5 +1,5 @@
-/* Votação à Vista — service worker (offline) */
-const CACHE = "votacao-a-vista-v1";
+/* Votacao a Vista - service worker (offline) */
+const CACHE = "votacao-a-vista-v6";
 const SHELL = [
   ".",
   "index.html",
@@ -21,9 +21,26 @@ self.addEventListener("activate", e => {
   );
 });
 
-/* Cache-first; em falta vai à rede e guarda cópia */
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
+
+  /* Página/navegação: rede primeiro (atualizações imediatas), cache se offline */
+  if (e.request.mode === "navigate" || e.request.destination === "document") {
+    e.respondWith(
+      fetch(e.request)
+        .then(res => {
+          const copia = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, copia));
+          return res;
+        })
+        .catch(() =>
+          caches.match(e.request).then(h => h || caches.match("index.html"))
+        )
+    );
+    return;
+  }
+
+  /* Restantes recursos (ícones, manifest): cache primeiro */
   e.respondWith(
     caches.match(e.request).then(hit =>
       hit ||
