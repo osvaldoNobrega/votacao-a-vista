@@ -781,7 +781,7 @@ function desenharLimpo(ctx, W, H, k, com) {
         if (v <= 0) return;
         const cy = gy + altCab + li * altLin + altLin / 2;
         if (v >= total) {
-          desenharX(ctx, centroX, cy, Math.round(44 * k), "#FFFFFF");
+          desenharX(ctx, centroX, cy, Math.round(37 * k), "#FFFFFF");
         } else {
           ctx.fillStyle = "#FFFFFF";
           ctx.font = `800 ${Math.round(46 * k)}px Arial, sans-serif`;
@@ -1220,7 +1220,7 @@ function desenharInfografico(ctx, W, H, k, com, segundoCastelo) {
     // linhas
     S.linhas.forEach((rot, li) => {
       const cy = y + ch0 + li * ch + ch / 2;
-      icoCirculo(ctx, gx + Math.round(46 * k), cy, Math.round(28 * k),
+      icoCirculo(ctx, gx + Math.round(46 * k), cy, Math.round(22 * k),
                  iconeLinha(rot), ACC, "#FFFFFF");
       ctx.fillStyle = NAVY; ctx.textAlign = "left";
       ctx.font = `700 ${Math.round(29 * k)}px ${F_C}`;
@@ -1229,7 +1229,7 @@ function desenharInfografico(ctx, W, H, k, com, segundoCastelo) {
         const v = voto(li, ci), total = totalColuna(col);
         const cx = gx + cw0 + ci * cw + cw / 2;
         if (v > 0 && v >= total) {
-          desenharX(ctx, cx, cy, Math.round(40 * k), ACC);
+          desenharX(ctx, cx, cy, Math.round(34 * k), ACC);
         } else if (v > 0) {
           ctx.fillStyle = ACC; ctx.textAlign = "center";
           ctx.font = `700 ${Math.round(42 * k)}px ${F_C}`;
