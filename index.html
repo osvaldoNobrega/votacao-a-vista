@@ -42,12 +42,13 @@
     color:var(--laranja-escuro);
   }
   label.campo{display:block;margin-bottom:12px;font-size:13px;font-weight:bold;color:var(--cinza)}
-  input[type=text],textarea,select{
+  button{touch-action:manipulation}
+  input[type=text],input[type=date],textarea,select{
     display:block;width:100%;margin-top:4px;padding:10px 12px;font-size:16px;
     border:1.5px solid var(--borda);border-radius:10px;background:#fff;color:var(--tinta);
     font-family:inherit;
   }
-  input[type=text]:focus,textarea:focus,select:focus{
+  input[type=text]:focus,input[type=date]:focus,textarea:focus,select:focus{
     outline:none;border-color:var(--laranja);box-shadow:0 0 0 3px rgba(243,147,24,.18);
   }
   textarea{resize:vertical;min-height:56px}
@@ -149,12 +150,18 @@
   .passo-btn{
     width:46px;height:46px;border:1.5px solid var(--laranja);border-radius:10px;
     background:#fff;color:var(--laranja-escuro);font-size:24px;font-weight:bold;
-    line-height:1;cursor:pointer;padding:0;
+    line-height:1;cursor:pointer;padding:0;user-select:none;-webkit-user-select:none;
   }
   .passo-btn:active{background:var(--laranja);color:#fff}
   .passo-val{
-    min-width:40px;text-align:center;font-size:20px;font-weight:800;color:var(--laranja-escuro);
+    width:52px;text-align:center;font-size:20px;font-weight:800;color:var(--laranja-escuro);
+    border:1.5px solid var(--borda);border-radius:10px;background:#fff;padding:9px 2px;
+    font-family:inherit;
   }
+  .passo-val::-webkit-outer-spin-button,.passo-val::-webkit-inner-spin-button{
+    -webkit-appearance:none;margin:0;
+  }
+  .passo-val{-moz-appearance:textfield;appearance:textfield}
   @media (max-width:720px){
     .grelha-wrap{display:none}
     .editor-movel{display:block}
@@ -192,7 +199,7 @@
       <input type="text" id="f-referencia" placeholder="Ex.: Proposta nº 3" maxlength="80">
     </label>
     <label class="campo">Data
-      <input type="text" id="f-data" placeholder="Ex.: 24/10/2026" maxlength="40">
+      <input type="date" id="f-data">
     </label>
     <label class="campo">Autor da proposta
       <input type="text" id="f-proponente" placeholder="Ex.: Proposta JSD" maxlength="100">
@@ -357,6 +364,12 @@ function textoContagem() {
   return S.linhas.map((l, i) => `${l}: ${somaLinha(i)}`).join("  ·  ");
 }
 
+/* AAAA-MM-DD do input date → dd/mm/aaaa na imagem; texto livre passa direto */
+function dataFormatada() {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(S.data || "");
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : (S.data || "");
+}
+
 /* ---------------- Editor da grelha ---------------- */
 
 const corpo = document.getElementById("corpo");
@@ -491,14 +504,21 @@ function construirMovel() {
       linha.appendChild(el("span", "rot", (rot || "—").toUpperCase()));
       const passos = el("div", "passos");
       const menos = el("button", "passo-btn", "−");
-      const val = el("span", "passo-val");
+      const val = document.createElement("input");
+      val.type = "number"; val.className = "passo-val";
+      val.min = "0"; val.inputMode = "numeric";
       const mais = el("button", "passo-btn", "+");
       menos.type = mais.type = "button";
       const total = () => totalColuna(col);
-      const refresh = () => {
-        const v = voto(li, ci);
-        val.textContent = v >= total() ? "✕" : String(v);
+      const refresh = () => { val.value = String(voto(li, ci)); };
+      const aplicar = norm => {
+        const n = parseInt(val.value, 10);
+        setVoto(li, ci, Math.max(0, Math.min(total(), isNaN(n) ? 0 : n)));
+        if (norm) refresh();
+        guardar(); validarColunas(); atualizarPrev();
       };
+      val.oninput = () => aplicar(false);
+      val.onchange = () => aplicar(true);
       menos.onclick = () => { setVoto(li, ci, Math.max(0, voto(li, ci) - 1)); refresh(); guardar(); validarColunas(); atualizarPrev(); };
       mais.onclick  = () => { setVoto(li, ci, Math.min(total(), voto(li, ci) + 1)); refresh(); guardar(); validarColunas(); atualizarPrev(); };
       refresh();
@@ -544,12 +564,22 @@ document.getElementById("btn-add-linha").onclick = () => {
 /* ---------------- Campos simples + pré-visualização ---------------- */
 
 const $ = id => document.getElementById(id);
-[["f-rotulo","rotulo"],["f-referencia","referencia"],["f-data","data"],
+[["f-rotulo","rotulo"],["f-referencia","referencia"],
  ["f-proponente","proponente"],["f-titulo","titulo"],["f-descricao","descricao"],
  ["f-comentario","comentario"]].forEach(([id, k]) => {
   $(id).value = S[k];
   $(id).oninput = () => { S[k] = $(id).value; guardar(); };
 });
+// data: o input tipo date guarda AAAA-MM-DD; converte texto antigo dd/mm/aaaa
+const fData = $("f-data");
+const mDataAntiga = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/.exec(S.data || "");
+fData.value = mDataAntiga
+  ? `${mDataAntiga[3].padStart(4, "20")}-${mDataAntiga[2].padStart(2, "0")}-${mDataAntiga[1].padStart(2, "0")}`
+  : (S.data || "");
+fData.oninput = () => { S.data = fData.value; guardar(); };
+// abrir o calendário ao clicar em qualquer ponto do campo (não só no ícone)
+fData.addEventListener("click", () => { try { fData.showPicker(); } catch (e) {} });
+fData.style.cursor = "pointer";
 $("f-formato").value = S.formato;
 $("f-formato").onchange = () => { S.formato = $("f-formato").value; guardar(); };
 $("f-estilo").value = S.estilo || "infografico";
@@ -1085,7 +1115,7 @@ function desenharInfografico(ctx, W, H, k, com, segundoCastelo) {
     icoCalendario(ctx, M, y - Math.round(18 * k), Math.round(36 * k), "#FFFFFF");
     ctx.fillStyle = "#FFFFFF";
     ctx.font = `700 ${Math.round(34 * k)}px ${F_C}`;
-    ctx.fillText(S.data, M + Math.round(48 * k), y);
+    ctx.fillText(dataFormatada(), M + Math.round(48 * k), y);
     y += Math.round(46 * k);
   }
   y += Math.round(12 * k);
@@ -1427,7 +1457,7 @@ if (/^#exemplo/.test(location.hash)) {
   $("f-estilo").value = S.estilo;
   S.rotulo = "VOTAÇÃO À VISTA";
   S.referencia = "Proposta nº 3";
-  S.data = "24/10/2026";
+  S.data = "2026-10-24";
   S.proponente = "Proposta JSD";
   S.titulo = "Apoio extraordinário às associações de bombeiros do concelho";
   S.descricao = "";
