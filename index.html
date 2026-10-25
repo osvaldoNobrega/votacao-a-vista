@@ -229,8 +229,11 @@
     <label class="campo">Estilo do template
       <select id="f-estilo">
         <option value="infografico" selected>Infográfico (pinceladas + vila)</option>
+        <option value="infografico-com">Infográfico — Comentário</option>
         <option value="infografico2">Infográfico 2 (castelo de Óbidos)</option>
+        <option value="infografico2-com">Infográfico 2 — Comentário</option>
         <option value="limpo">Limpo (simples)</option>
+        <option value="limpo-com">Limpo — Comentário</option>
       </select>
     </label>
     <label class="campo">Formato da imagem
@@ -247,6 +250,11 @@
         <option value="empate">Forçar: Empate</option>
       </select>
     </label>
+    <label class="campo">Comentário (opcional)
+      <textarea id="f-comentario" placeholder="Texto de comentário sobre o resultado"></textarea>
+      <div class="dica">Aparece na imagem após o resultado. Nos templates «Comentário»
+      substitui a grelha de votos.</div>
+    </label>
     <div class="resultado-prev" id="prev-resultado">—</div>
     <div class="contagem" id="prev-contagem"></div>
     <button class="primario" id="btn-gerar" type="button">Gerar imagem</button>
@@ -257,6 +265,8 @@
     </div>
     <div class="dica" id="dl-dica" hidden>No telemóvel, se a transferência não iniciar,
     mantenha o dedo na imagem e escolha «Guardar imagem».</div>
+    <div class="dica" id="dica-comentario" hidden>O comentário não coube nesta
+    composição — encurte o texto ou use um template «Comentário».</div>
   </section>
 </main>
 
@@ -286,6 +296,7 @@ const estadoPadrao = () => ({
   proponente: "",
   titulo: "",
   descricao: "",
+  comentario: "",
   estilo: "infografico",
   colunas: [
     { nome: "PSD",              eleitos: null },
@@ -534,7 +545,8 @@ document.getElementById("btn-add-linha").onclick = () => {
 
 const $ = id => document.getElementById(id);
 [["f-rotulo","rotulo"],["f-referencia","referencia"],["f-data","data"],
- ["f-proponente","proponente"],["f-titulo","titulo"],["f-descricao","descricao"]].forEach(([id, k]) => {
+ ["f-proponente","proponente"],["f-titulo","titulo"],["f-descricao","descricao"],
+ ["f-comentario","comentario"]].forEach(([id, k]) => {
   $(id).value = S[k];
   $(id).oninput = () => { S[k] = $(id).value; guardar(); };
 });
@@ -608,20 +620,28 @@ function desenharX(ctx, cx, cy, tam, cor) {
   ctx.restore();
 }
 
+let comentarioVisivel = true;
+
 function gerarImagem() {
   const { w: W, h: H, k } = dimensoes();
   const cv = $("preview");
   cv.width = W; cv.height = H;
   const ctx = cv.getContext("2d");
-  if ((S.estilo || "infografico") === "limpo") desenharLimpo(ctx, W, H, k);
-  else desenharInfografico(ctx, W, H, k);
+  const estilo = S.estilo || "infografico";
+  const com = estilo.endsWith("-com");
+  const base = com ? estilo.slice(0, -4) : estilo;
+  comentarioVisivel = true;
+  if (base === "limpo") desenharLimpo(ctx, W, H, k, com);
+  else desenharInfografico(ctx, W, H, k, com, base === "infografico2");
+  $("dica-comentario").hidden =
+    !((S.comentario || "").trim() && !comentarioVisivel);
   cv.hidden = false;
   $("dl-row").hidden = false;
   $("dl-dica").hidden = false;
   cv.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-function desenharLimpo(ctx, W, H, k) {
+function desenharLimpo(ctx, W, H, k, com) {
   const M = Math.round(64 * k);              // margem
   let y = M;
 
@@ -675,7 +695,7 @@ function desenharLimpo(ctx, W, H, k) {
 
   // ---- Grelha ----
   const nCol = S.colunas.length, nLin = S.linhas.length;
-  if (nCol > 0 && nLin > 0) {
+  if (!com && nCol > 0 && nLin > 0) {
     const largRot = Math.round(168 * k);
     const largGrelha = W - M * 2;
     const largCol = (largGrelha - largRot) / nCol;
@@ -775,7 +795,42 @@ function desenharLimpo(ctx, W, H, k) {
   }
 
   // ---- Zona inferior: resultado + logo ----
-  const bandaTopo = Math.max(H - Math.round(330 * k), y + Math.round(50 * k));
+  const coment = (S.comentario || "").trim();
+  const logoTop = H - Math.round(195 * k);
+  let linhasCom = [], comFs = Math.round(28 * k);
+  let bandaTopo, yRes = 0, yCont = 0, yComBase = 0;
+  if (com) {
+    // cartão de comentário ocupa o espaço livre até à banda inferior
+    bandaTopo = Math.max(H - Math.round(300 * k), y + Math.round(200 * k));
+    desenharCartaoComentario(ctx, M, y + Math.round(30 * k), W - M * 2,
+      bandaTopo - Math.round(40 * k) - y - Math.round(30 * k), k);
+    yRes = bandaTopo + Math.round(88 * k);
+  } else {
+    // resultado/contagem/comentário ancorados ao topo do logo — um
+    // comentário grande comprime a letra, nunca tapa o logo
+    const disp = logoTop - Math.round(10 * k) -
+      (y + Math.round(50 * k) + Math.round(150 * k));
+    let comentH = 0;
+    if (coment && disp > Math.round(30 * k)) {
+      const largCom = W - M * 2;
+      const medirC = f => { ctx.font = `600 ${f}px Arial, sans-serif`;
+                            return wrapTexto(ctx, coment, largCom); };
+      while (comFs > Math.round(14 * k) &&
+             medirC(comFs).length * comFs * 1.3 > disp - Math.round(8 * k))
+        comFs -= 2;
+      const todas = medirC(comFs);
+      const maxLin = Math.max(1,
+        Math.floor((disp - Math.round(8 * k)) / (comFs * 1.3)));
+      linhasCom = todas.slice(0, maxLin);
+      if (todas.length > maxLin) linhasCom[linhasCom.length - 1] += "…";
+      comentH = linhasCom.length * comFs * 1.3 + Math.round(8 * k);
+    }
+    yComBase = logoTop - Math.round(10 * k);
+    yCont = yComBase - comentH - Math.round(16 * k);
+    yRes = yCont - Math.round(62 * k);
+    bandaTopo = Math.max(yRes - Math.round(58 * k), y + Math.round(50 * k));
+  }
+  if (coment) comentarioVisivel = com || linhasCom.length > 0;
 
   ctx.fillStyle = ORANGE_D;
   ctx.fillRect(0, bandaTopo, W, H - bandaTopo);
@@ -783,15 +838,23 @@ function desenharLimpo(ctx, W, H, k) {
   const r = resultadoFinal();
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillStyle = "#FFFFFF";
-  ctx.font = `800 ${Math.round(72 * k)}px Arial, sans-serif`;
+  ctx.font = `800 ${Math.round((com ? 54 : 72) * k)}px Arial, sans-serif`;
   if ("letterSpacing" in ctx) ctx.letterSpacing = "3px";
-  ctx.fillText(TEXTO_RESULTADO[r], W / 2, bandaTopo + Math.round(88 * k));
+  ctx.fillText(TEXTO_RESULTADO[r], W / 2, yRes);
   if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
 
-  // Contagem
-  ctx.fillStyle = "rgba(255,255,255,0.92)";
-  ctx.font = `600 ${Math.round(28 * k)}px Arial, sans-serif`;
-  ctx.fillText(textoContagem(), W / 2, bandaTopo + Math.round(150 * k));
+  // Contagem + comentário por baixo (só no template normal)
+  if (!com) {
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.font = `600 ${Math.round(28 * k)}px Arial, sans-serif`;
+    ctx.fillText(textoContagem(), W / 2, yCont);
+    if (linhasCom.length) {
+      ctx.font = `600 ${comFs}px Arial, sans-serif`;
+      const passo = comFs * 1.3;
+      linhasCom.forEach((l, i) =>
+        ctx.fillText(l, W / 2, yComBase - (linhasCom.length - i) * passo + passo / 2));
+    }
+  }
 
   // Logo (marca branca transparente)
   if (imgLogo.complete && imgLogo.naturalWidth) {
@@ -813,6 +876,31 @@ imgSelo.src = ASSETS.selo; imgBanner.src = ASSETS.banner;
 
 const NAVY = "#23262E", CREAM = "#F9F0E4", ACC = "#F4570F", INK = "#1B1B22";
 const F_M = "'Permanent Marker'", F_B = "'Archivo Black'", F_C = "'Barlow Condensed'";
+
+/* Cartão creme com o comentário centrado (templates "Comentário") */
+function desenharCartaoComentario(ctx, x, y, w, h, k) {
+  const txt = (S.comentario || "").trim();
+  h = Math.max(h, Math.round(60 * k));
+  ctx.save();
+  roundRect(ctx, x, y, w, h, Math.round(24 * k));
+  ctx.fillStyle = CREAM; ctx.fill();
+  const pad = Math.round(36 * k);
+  const alvo = txt || "Escreva o seu comentário…";
+  const medir = f => { ctx.font = `600 ${f}px ${F_C}`; return wrapTexto(ctx, alvo, w - pad * 2); };
+  let fs = Math.round(46 * k);
+  while (fs > Math.round(20 * k) && medir(fs).length * fs * 1.18 > h - pad * 2) fs -= 2;
+  const todas = medir(fs);
+  const maxLin = Math.max(1, Math.floor((h - pad * 2) / (fs * 1.18)));
+  const linhas = todas.slice(0, maxLin);
+  if (todas.length > maxLin) linhas[linhas.length - 1] += "…";
+  const passo = fs * 1.18;
+  const y0 = y + h / 2 - (linhas.length - 1) * passo / 2;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = `600 ${fs}px ${F_C}`;
+  ctx.fillStyle = txt ? NAVY : "rgba(35,38,46,0.4)";
+  linhas.forEach((l, i) => ctx.fillText(l, x + w / 2, y0 + i * passo));
+  ctx.restore();
+}
 
 function rng(seed) {
   let s = (seed >>> 0) || 7;
@@ -928,7 +1016,7 @@ function icoCirculo(ctx, cx, cy, r, tipo, corFill, corIco) {
   ctx.restore();
 }
 
-function desenharInfografico(ctx, W, H, k) {
+function desenharInfografico(ctx, W, H, k, com, segundoCastelo) {
   const M = Math.round(64 * k);
 
   // fundo: gradiente diagonal + vinheta canto inferior direito
@@ -947,7 +1035,7 @@ function desenharInfografico(ctx, W, H, k) {
   if (imgBL.complete && imgBL.naturalWidth)
     ctx.drawImage(imgBL, 0, H - imgBL.naturalHeight * sc,
                   imgBL.naturalWidth * sc, imgBL.naturalHeight * sc);
-  const imgC = S.estilo === "infografico2" ? imgCastle2 : imgCastle;
+  const imgC = segundoCastelo ? imgCastle2 : imgCastle;
   if (imgC.complete && imgC.naturalWidth) {
     const cw = W * 0.46;
     const chh = cw * imgC.naturalHeight / imgC.naturalWidth;
@@ -959,11 +1047,13 @@ function desenharInfografico(ctx, W, H, k) {
 
   // geometria do bloco inferior (ancorado em baixo)
   const logoH = Math.round(165 * k);
-  const pillH = Math.round(98 * k);
   const logoTop = H - Math.round(34 * k) - logoH;
-  const pillY = logoTop - Math.round(26 * k) - pillH;
-  const banH = Math.round(190 * k);
-  const banY = pillY - Math.round(26 * k) - banH;
+  const pillH = Math.round(98 * k);
+  const banH = Math.round((com ? 125 : 190) * k);
+  const coment = (S.comentario || "").trim();
+  // posição de referência do banner/pill antes de contar o comentário
+  const pillY0 = logoTop - Math.round(26 * k) - pillH;
+  const banY0 = (com ? logoTop : pillY0) - Math.round(26 * k) - banH;
 
   // selo VOTAÇÃO À VISTA
   const txtSelo = (S.rotulo || "VOTAÇÃO À VISTA").toUpperCase();
@@ -1006,18 +1096,45 @@ function desenharInfografico(ctx, W, H, k) {
   const ch0 = Math.round(88 * k);
   const autorH = (S.proponente ? Math.round(50 * k) : 0);
   const descH = (S.descricao ? Math.round(38 * k) : 0) + Math.round(18 * k);
-  const resto = banY - y - Math.round(20 * k);
+  const resto0 = banY0 - y - Math.round(20 * k);
   const largT = W - M * 2;
   const titulo = S.titulo || "Título da votação";
   const medir = f => { ctx.font = `${f}px ${F_B}`; return wrapTexto(ctx, titulo, largT); };
 
+  // comentário por baixo da pill: entra no orçamento antes do ajuste —
+  // o conteúdo comprime até aos mínimos e o banner nunca toca a grelha
+  const minContent =
+    Math.min(medir(28).length, 4) * 28 * 1.1 + Math.round(30 * k) + autorH + descH +
+    (com ? Math.round(160 * k)
+         : (nCol > 0 && nLin > 0 ? ch0 + Math.round(48 * k) * nLin + Math.round(34 * k) : 0));
+  const espacoMax = Math.max(0, resto0 - minContent - Math.round(10 * k));
+  let linhasCom = [], comFs = Math.round(30 * k), comH = 0;
+  if (!com && coment && espacoMax > Math.round(26 * k)) {
+    const largCom = W - M * 2;
+    const medirC = f => { ctx.font = `600 ${f}px ${F_C}`;
+                          return wrapTexto(ctx, coment, largCom); };
+    while (comFs > Math.round(14 * k) &&
+           medirC(comFs).length * comFs * 1.3 > espacoMax - Math.round(12 * k))
+      comFs -= 2;
+    const todas = medirC(comFs);
+    const maxLin = Math.max(1,
+      Math.floor((espacoMax - Math.round(12 * k)) / (comFs * 1.3)));
+    linhasCom = todas.slice(0, maxLin);
+    if (todas.length > maxLin) linhasCom[linhasCom.length - 1] += "…";
+    comH = Math.min(linhasCom.length * comFs * 1.3 + Math.round(12 * k), espacoMax);
+  }
+  const pillY = pillY0 - comH, banY = banY0 - comH;
+  const resto = resto0 - comH;
+  if (coment) comentarioVisivel = com || linhasCom.length > 0;
+
   let fsT = Math.round(84 * k);
   let ch = Math.round(84 * k);
   const precisa = () =>
-    medir(fsT).length * fsT * 1.1 + Math.round(30 * k) + autorH + descH +
-    (nCol > 0 && nLin > 0 ? ch0 + ch * nLin + Math.round(34 * k) : 0);
+    Math.min(medir(fsT).length, 4) * fsT * 1.1 + Math.round(30 * k) + autorH + descH +
+    (com ? Math.round(160 * k)
+         : (nCol > 0 && nLin > 0 ? ch0 + ch * nLin + Math.round(34 * k) : 0));
   while (fsT > 28 && precisa() > resto) fsT -= 3;
-  while (ch > Math.round(48 * k) && precisa() > resto) ch -= 3;
+  while (!com && ch > Math.round(48 * k) && precisa() > resto) ch -= 3;
 
   // AUTOR da proposta (condensada, preto — uniforme com a descrição)
   if (S.proponente) {
@@ -1046,8 +1163,8 @@ function desenharInfografico(ctx, W, H, k) {
   }
   y += Math.round(18 * k);
 
-  // grelha
-  if (nCol > 0 && nLin > 0) {
+  // grelha (ausente nos templates de comentário)
+  if (!com && nCol > 0 && nLin > 0) {
     const gx = M, gw = W - M * 2;
     const cw = (gw - cw0) / nCol;
     const gh = ch0 + ch * nLin;
@@ -1127,6 +1244,12 @@ function desenharInfografico(ctx, W, H, k) {
     y += gh + Math.round(34 * k);
   }
 
+  // cartão de comentário no lugar da grelha (templates "Comentário")
+  if (com) {
+    desenharCartaoComentario(ctx, M, y, W - M * 2,
+      banY - Math.round(24 * k) - y, k);
+  }
+
   // ---- bloco inferior ancorado (geometria calculada acima) ----
 
   // banner resultado
@@ -1134,11 +1257,11 @@ function desenharInfografico(ctx, W, H, k) {
   const partesRes = TEXTO_RESULTADO[r].split(" ");
   const linha1 = partesRes.slice(0, -1).join(" ");
   const linha2 = partesRes[partesRes.length - 1];
-  ctx.font = `${Math.round(88 * k)}px ${F_M}`;
+  ctx.font = `${Math.round((com ? 58 : 88) * k)}px ${F_M}`;
   const w2 = ctx.measureText(linha2).width;
-  ctx.font = `${Math.round(46 * k)}px ${F_M}`;
+  ctx.font = `${Math.round((com ? 32 : 46) * k)}px ${F_M}`;
   const w1 = linha1 ? ctx.measureText(linha1).width : 0;
-  const circR = Math.round(58 * k);
+  const circR = Math.round((com ? 42 : 58) * k);
   const banW = circR * 2 + Math.round(36 * k) + Math.max(w1, w2) + Math.round(110 * k);
   const bx = (W - banW) / 2;
   const banHH = imgBanner.naturalWidth
@@ -1157,40 +1280,52 @@ function desenharInfografico(ctx, W, H, k) {
   ctx.textAlign = "left";
   if (linha1) {
     ctx.fillStyle = "#FFFFFF";
-    ctx.font = `${Math.round(46 * k)}px ${F_M}`;
+    ctx.font = `${Math.round((com ? 32 : 46) * k)}px ${F_M}`;
     ctx.fillText(linha1, tx, banY + banH * 0.30);
   }
   ctx.fillStyle = ACC;
-  ctx.font = `${Math.round(88 * k)}px ${F_M}`;
+  ctx.font = `${Math.round((com ? 58 : 88) * k)}px ${F_M}`;
   ctx.fillText(linha2, tx, banY + banH * (linha1 ? 0.66 : 0.52));
 
-  // pill de totais
-  const pw = Math.min(W - M * 2, Math.round(760 * k));
-  const pxp = (W - pw) / 2;
-  ctx.fillStyle = CREAM;
-  roundRect(ctx, pxp, pillY, pw, pillH, pillH / 2); ctx.fill();
-  const partes = [idxFavor(), idxContra(),
-                  S.linhas.findIndex((_, i) => i !== idxFavor() && i !== idxContra())]
-                 .filter(i => i >= 0 && i < S.linhas.length);
-  const usar = partes.length ? partes : S.linhas.map((_, i) => i);
-  const colW = pw / usar.length;
-  usar.forEach((li, i) => {
-    const cx = pxp + i * colW + colW / 2;
-    ctx.textAlign = "center";
-    ctx.fillStyle = NAVY;
-    ctx.font = `700 ${Math.round(23 * k)}px ${F_C}`;
-    ctx.fillText((S.linhas[li] || "—").toUpperCase(), cx, pillY + pillH * 0.36);
-    ctx.fillStyle = ACC;
-    ctx.font = `${Math.round(40 * k)}px ${F_B}`;
-    ctx.fillText(String(somaLinha(li)), cx, pillY + pillH * 0.72);
-    if (i > 0) {
-      ctx.strokeStyle = "rgba(35,38,46,0.2)"; ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(pxp + i * colW, pillY + pillH * 0.22);
-      ctx.lineTo(pxp + i * colW, pillY + pillH * 0.78);
-      ctx.stroke();
-    }
-  });
+  // pill de totais (ausente nos templates de comentário)
+  if (!com) {
+    const pw = Math.min(W - M * 2, Math.round(760 * k));
+    const pxp = (W - pw) / 2;
+    ctx.fillStyle = CREAM;
+    roundRect(ctx, pxp, pillY, pw, pillH, pillH / 2); ctx.fill();
+    const partes = [idxFavor(), idxContra(),
+                    S.linhas.findIndex((_, i) => i !== idxFavor() && i !== idxContra())]
+                   .filter(i => i >= 0 && i < S.linhas.length);
+    const usar = partes.length ? partes : S.linhas.map((_, i) => i);
+    const colW = pw / usar.length;
+    usar.forEach((li, i) => {
+      const cx = pxp + i * colW + colW / 2;
+      ctx.textAlign = "center";
+      ctx.fillStyle = NAVY;
+      ctx.font = `700 ${Math.round(23 * k)}px ${F_C}`;
+      ctx.fillText((S.linhas[li] || "—").toUpperCase(), cx, pillY + pillH * 0.36);
+      ctx.fillStyle = ACC;
+      ctx.font = `${Math.round(40 * k)}px ${F_B}`;
+      ctx.fillText(String(somaLinha(li)), cx, pillY + pillH * 0.72);
+      if (i > 0) {
+        ctx.strokeStyle = "rgba(35,38,46,0.2)"; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(pxp + i * colW, pillY + pillH * 0.22);
+        ctx.lineTo(pxp + i * colW, pillY + pillH * 0.78);
+        ctx.stroke();
+      }
+    });
+  }
+
+  // comentário por baixo da pill (só no template normal)
+  if (linhasCom.length) {
+    ctx.textAlign = "center"; ctx.fillStyle = "#FFFFFF";
+    ctx.font = `600 ${comFs}px ${F_C}`;
+    const passo = comFs * 1.3;
+    const comCentro = (pillY + pillH + logoTop) / 2;
+    linhasCom.forEach((l, i) =>
+      ctx.fillText(l, W / 2, comCentro + (i - (linhasCom.length - 1) / 2) * passo));
+  }
 
   // rodapé: logo centrado em baixo + tagline à esquerda
   if (imgLogo.complete && imgLogo.naturalWidth) {
@@ -1216,9 +1351,11 @@ function nomeFicheiro() {
 
 function prontoParaDesenhar(cb) {
   const imgs = [imgLogo, imgCastle, imgCastle2, imgTR, imgBL, imgSelo, imgBanner];
-  const esperarImgs = Promise.all(imgs.map(i =>
-    i.complete ? Promise.resolve() :
-    new Promise(r => { i.onload = r; i.onerror = r; })));
+  const esperarImgs = Promise.race([
+    Promise.all(imgs.map(i =>
+      i.decode ? i.decode().catch(() => {}) : Promise.resolve())),
+    new Promise(r => setTimeout(r, 4000))
+  ]);
   let esperarFontes = Promise.resolve();
   if (document.fonts && document.fonts.load) {
     esperarFontes = Promise.all([
@@ -1228,7 +1365,10 @@ function prontoParaDesenhar(cb) {
       document.fonts.load('700 30px "Barlow Condensed"')
     ]).catch(() => {});
   }
-  Promise.all([esperarImgs, esperarFontes]).then(cb);
+  Promise.race([
+    Promise.all([esperarImgs, esperarFontes]),
+    new Promise(r => setTimeout(r, 4000))
+  ]).then(cb);
 }
 
 $("btn-gerar").onclick = () => prontoParaDesenhar(gerarImagem);
@@ -1279,15 +1419,21 @@ atualizarPrev();
 
 /* Abrir com #exemplo (ou #exemplo-q para quadrado) carrega demonstração e gera a imagem */
 if (/^#exemplo/.test(location.hash)) {
-  if (location.hash.includes("-l")) { S.estilo = "limpo"; $("f-estilo").value = "limpo"; }
-  if (location.hash.includes("-2")) { S.estilo = "infografico2"; $("f-estilo").value = "infografico2"; }
+  const suf = location.hash.replace("#exemplo", "");
+  S.estilo = "infografico";
+  if (suf.includes("l")) S.estilo = "limpo";
+  if (suf.includes("2")) S.estilo = "infografico2";
+  if (suf.includes("c")) S.estilo += "-com";
+  $("f-estilo").value = S.estilo;
   S.rotulo = "VOTAÇÃO À VISTA";
   S.referencia = "Proposta nº 3";
   S.data = "24/10/2026";
   S.proponente = "Proposta JSD";
   S.titulo = "Apoio extraordinário às associações de bombeiros do concelho";
   S.descricao = "";
-  S.formato = location.hash === "#exemplo-q" ? "quadrado" : "retrato";
+  S.comentario = "Grande vitória para os jovens do concelho — a JSD continua a lutar por políticas que fazem a diferença no dia a dia das pessoas.";
+  if (suf.includes("x")) S.comentario = S.comentario.repeat(6);
+  S.formato = suf.includes("q") ? "quadrado" : "retrato";
   $("f-formato").value = S.formato;
   [4, 3, 2, 6, 4, 2].forEach((n, i) => S.colunas[i].eleitos = n);
   S.votos = [
@@ -1295,11 +1441,19 @@ if (/^#exemplo/.test(location.hash)) {
     [0, 0, 2, 2, 3, 2],
     [0, 0, 0, 0, 1, 0]
   ];
-  ["rotulo","referencia","data","proponente","titulo","descricao"]
+  ["rotulo","referencia","data","proponente","titulo","descricao","comentario"]
     .forEach(k => $("f-" + k).value = S[k]);
   construirTabela();
   atualizarPrev();
-  prontoParaDesenhar(gerarImagem);
+  prontoParaDesenhar(() => {
+    gerarImagem();
+    if (suf.includes("s")) {
+      const cv = $("preview");
+      document.body.innerHTML = "";
+      document.body.appendChild(cv);
+      cv.style.cssText = "display:block;width:100vw;height:100vh;object-fit:contain";
+    }
+  });
 }
 </script>
 <script>

@@ -1,5 +1,5 @@
-/* Votacao a Vista - service worker (offline) */
-const CACHE = "votacao-a-vista-v6";
+﻿/* Votacao a Vista - service worker (offline) */
+const CACHE = "votacao-a-vista-v7";
 const SHELL = [
   ".",
   "index.html",
